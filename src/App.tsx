@@ -1,23 +1,22 @@
 // C:\Projects\Lalana\src\App.tsx
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Music, Upload, Play, Pause, Sparkles, Volume2, Wand2, Download, RefreshCw } from 'lucide-react';
+import { AudioWaveform as Waveform, Upload, Play, Pause, Sparkles, Volume2, Wand2, Download } from 'lucide-react';
 import { useAudioAnalyzer } from './hooks/useAudioAnalyzer';
 import WaveSurfer from 'wavesurfer.js';
 import { debugLog } from './utils/debug';
 
 function App() {
-  const {
-    audioFile,
-    handleFileUpload,
-    isPlaying,
-    togglePlayback,
+  const { 
+    audioFile, 
+    handleFileUpload, 
+    isPlaying, 
+    togglePlayback, 
     analyzeAudio,
     waveformData,
     spectrumData,
     processedAudio,
     applyEffects,
-    audioContext,
-    resetEffects,
+    audioContext
   } = useAudioAnalyzer();
 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -38,12 +37,18 @@ function App() {
   const spectrumRef = useRef<HTMLDivElement>(null);
   const wavesurferRef = useRef<WaveSurfer | null>(null);
   const spectrumSurferRef = useRef<WaveSurfer | null>(null);
-  const isMounted = useRef(false);
+  const visualizerInitialized = useRef(false);
+  const updateTimeoutRef = useRef<number | null>(null);
 
   const initVisualizers = useCallback(() => {
-    debugLog('Initializing visualizers', {
-      waveformRef: !!waveformRef.current,
-      spectrumRef: !!spectrumRef.current,
+    if (visualizerInitialized.current) {
+      debugLog('Visualizers already initialized - skipping');
+      return;
+    }
+
+    debugLog('Initializing visualizers', { 
+      waveformRef: !!waveformRef.current, 
+      spectrumRef: !!spectrumRef.current 
     });
 
     if (!waveformRef.current || !spectrumRef.current) {
@@ -62,25 +67,22 @@ function App() {
         cursorWidth: 0,
         interact: false,
         normalize: true,
+        backend: 'WebAudio',
       });
 
       wavesurferRef.current.on('ready', () => {
         const canvasExists = !!waveformRef.current?.querySelector('canvas');
-        debugLog('Waveform ready', {
-          duration: wavesurferRef.current?.getDuration(),
+        debugLog('Waveform ready', { 
+          duration: wavesurferRef.current?.getDuration() || 0,
           canvas: canvasExists,
-          containerHTML: waveformRef.current?.innerHTML.length,
-          canvasCount: waveformRef.current?.querySelectorAll('canvas').length,
+          canvasCount: waveformRef.current?.querySelectorAll('canvas').length || 0
         });
       });
       wavesurferRef.current.on('error', (err) => {
         debugLog('Wavesurfer error', { message: err.message });
         setError('Waveform display error');
       });
-      debugLog('Waveform initialized', {
-        params: wavesurferRef.current.getActivePlugins(),
-        container: !!waveformRef.current,
-      });
+      debugLog('Waveform initialized', { container: !!waveformRef.current });
 
       if (spectrumSurferRef.current) spectrumSurferRef.current.destroy();
       spectrumSurferRef.current = WaveSurfer.create({
@@ -90,25 +92,24 @@ function App() {
         barWidth: 2,
         interact: false,
         normalize: true,
+        backend: 'WebAudio',
       });
 
       spectrumSurferRef.current.on('ready', () => {
         const canvasExists = !!spectrumRef.current?.querySelector('canvas');
-        debugLog('Spectrum ready', {
-          duration: spectrumSurferRef.current?.getDuration(),
+        debugLog('Spectrum ready', { 
+          duration: spectrumSurferRef.current?.getDuration() || 0,
           canvas: canvasExists,
-          containerHTML: spectrumRef.current?.innerHTML.length,
-          canvasCount: spectrumRef.current?.querySelectorAll('canvas').length,
+          canvasCount: spectrumRef.current?.querySelectorAll('canvas').length || 0
         });
       });
       spectrumSurferRef.current.on('error', (err) => {
         debugLog('Spectrum error', { message: err.message });
         setError('Spectrum display error');
       });
-      debugLog('Spectrum initialized', {
-        params: spectrumSurferRef.current.getActivePlugins(),
-        container: !!spectrumRef.current,
-      });
+      debugLog('Spectrum initialized', { container: !!spectrumRef.current });
+
+      visualizerInitialized.current = true;
     } catch (e) {
       debugLog('Visualizer init error', { message: e instanceof Error ? e.message : String(e) });
       setError('Failed to initialize visualizers');
@@ -116,16 +117,11 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!isMounted.current) {
-      requestAnimationFrame(() => {
-        initVisualizers();
-        isMounted.current = true;
-      });
-    }
-
+    initVisualizers();
     return () => {
       wavesurferRef.current?.destroy();
       spectrumSurferRef.current?.destroy();
+      visualizerInitialized.current = false;
       debugLog('Visualizers destroyed');
     };
   }, [initVisualizers]);
@@ -170,65 +166,66 @@ function App() {
   };
 
   const updateVisualizations = useCallback(async () => {
-    debugLog('Updating visualizations', {
-      waveformData: !!waveformData,
-      spectrumData: !!spectrumData,
-      processedAudio: !!processedAudio,
-      waveformRef: !!waveformRef.current?.childElementCount,
-      spectrumRef: !!spectrumRef.current?.childElementCount,
-      audioContext: !!audioContext,
-    });
+    if (updateTimeoutRef.current) {
+      clearTimeout(updateTimeoutRef.current);
+    }
 
-    if (!audioContext || !waveformRef.current || !spectrumRef.current) {
-      debugLog('Visualization update skipped - missing dependencies', {
-        audioContext: !!audioContext,
-        waveformRef: !!waveformRef.current,
-        spectrumRef: !!spectrumRef.current,
+    updateTimeoutRef.current = window.setTimeout(async () => {
+      debugLog('Updating visualizations', { 
+        waveformData: !!waveformData, 
+        spectrumData: !!spectrumData, 
+        processedAudio: !!processedAudio,
+        audioFile: !!audioFile,
+        audioContext: !!audioContext
       });
-      return;
-    }
 
-    if (!wavesurferRef.current || !spectrumSurferRef.current) {
-      debugLog('WaveSurfer instances missing - reinitializing');
-      initVisualizers();
-      if (!wavesurferRef.current || !spectrumSurferRef.current) return;
-    }
-
-    try {
-      if (processedAudio) {
-        debugLog('Loading processed audio into waveform', { size: processedAudio.size });
-        await wavesurferRef.current.loadBlob(processedAudio);
-      } else if (waveformData) {
-        debugLog('Loading waveform data', { length: waveformData.length });
-        const audioBuffer = audioContext.createBuffer(1, waveformData.length, audioContext.sampleRate);
-        audioBuffer.getChannelData(0).set(waveformData);
-        const blob = audioBufferToBlob(audioBuffer);
-        await wavesurferRef.current.loadBlob(blob);
-      } else if (audioFile) {
-        debugLog('Loading raw audio file', { size: audioFile.size });
-        await wavesurferRef.current.loadBlob(audioFile);
+      if (!audioContext || !waveformRef.current || !spectrumRef.current) {
+        debugLog('Visualization update skipped - missing dependencies');
+        return;
       }
 
-      if (spectrumData) {
-        debugLog('Loading spectrum data', { length: spectrumData.magnitudes.length });
-        const scaledMagnitudes = spectrumData.magnitudes.map((m) => m * 1000);
-        const spectrumArray = new Float32Array(scaledMagnitudes);
-        const spectrumBuffer = audioContext.createBuffer(1, spectrumArray.length, audioContext.sampleRate);
-        spectrumBuffer.getChannelData(0).set(spectrumArray);
-        const blob = audioBufferToBlob(spectrumBuffer);
-        await spectrumSurferRef.current.loadBlob(blob);
+      if (!wavesurferRef.current || !spectrumSurferRef.current) {
+        debugLog('WaveSurfer instances missing - reinitializing');
+        initVisualizers();
+        if (!wavesurferRef.current || !spectrumSurferRef.current) return;
       }
-    } catch (e) {
-      debugLog('Visualization update error', { message: e instanceof Error ? e.message : String(e) });
-      setError('Failed to update visualizations');
-    }
+
+      try {
+        if (processedAudio) {
+          debugLog('Loading processed audio into waveform', { size: processedAudio.size });
+          await wavesurferRef.current.loadBlob(processedAudio);
+        } else if (audioFile) {
+          debugLog('Loading raw audio file', { size: audioFile.size });
+          await wavesurferRef.current.loadBlob(audioFile);
+        } else if (waveformData) {
+          debugLog('Loading waveform data', { length: waveformData.length });
+          const audioBuffer = audioContext.createBuffer(1, waveformData.length, audioContext.sampleRate);
+          audioBuffer.getChannelData(0).set(waveformData);
+          const blob = audioBufferToBlob(audioBuffer);
+          await wavesurferRef.current.loadBlob(blob);
+        }
+
+        if (spectrumData) {
+          debugLog('Loading spectrum data', { length: spectrumData.magnitudes.length });
+          const scaledMagnitudes = spectrumData.magnitudes.map(m => Math.min(1, m * 1000));
+          const spectrumArray = new Float32Array(scaledMagnitudes);
+          const spectrumBuffer = audioContext.createBuffer(1, spectrumArray.length, audioContext.sampleRate);
+          spectrumBuffer.getChannelData(0).set(spectrumArray);
+          const blob = audioBufferToBlob(spectrumBuffer);
+          await spectrumSurferRef.current.loadBlob(blob);
+        }
+      } catch (e) {
+        debugLog('Visualization update error', { message: e instanceof Error ? e.message : String(e) });
+        setError('Failed to update visualizations');
+      }
+    }, 500); // Debounce by 500ms
   }, [audioFile, processedAudio, waveformData, spectrumData, audioContext, initVisualizers]);
 
   useEffect(() => {
-    if (audioContext) {
+    if (audioContext && (audioFile || processedAudio)) {
       updateVisualizations();
     }
-  }, [audioContext, audioFile, processedAudio, waveformData, spectrumData, updateVisualizations]);
+  }, [audioContext, audioFile, processedAudio, updateVisualizations]);
 
   const handleFileUploadWrapper = async (file: File) => {
     try {
@@ -265,19 +262,6 @@ function App() {
     }
   };
 
-  const handleResetEffects = async () => {
-    try {
-      setError(null);
-      setNoiseReduction(50);
-      setPitchShift(0);
-      setVolume(1);
-      await resetEffects();
-    } catch (e) {
-      debugLog('Reset effects error', { message: e instanceof Error ? e.message : String(e) });
-      setError('Failed to reset effects');
-    }
-  };
-
   const handleExport = () => {
     try {
       if (processedAudio) {
@@ -298,7 +282,7 @@ function App() {
     <div className="min-h-screen bg-[#0a0a0f] text-white">
       <header className="p-6 flex items-center justify-between border-b border-[#2a2a3c]">
         <div className="flex items-center space-x-2">
-          <Music className="w-8 h-8 text-[#00ffcc]" />
+          <Waveform className="w-8 h-8 text-[#00ffcc]" />
           <h1 className="text-2xl font-bold bg-gradient-to-r from-[#00ffcc] to-[#33ccff] bg-clip-text text-transparent">
             SoundCraft
           </h1>
@@ -315,13 +299,13 @@ function App() {
         <div className="grid gap-6 mb-8">
           <div className="h-48 bg-[#1a1a2e] rounded-lg p-4">
             <h3 className="text-[#00ffcc] mb-2">Waveform</h3>
-            <div key="waveform" ref={waveformRef} className="h-32"></div>
+            <div id="waveform" ref={waveformRef} className="h-32"></div>
             {!audioFile && <p className="text-gray-500 text-center">Upload audio to visualize</p>}
           </div>
 
           <div className="h-48 bg-[#1a1a2e] rounded-lg p-4">
             <h3 className="text-[#33ccff] mb-2">Frequency Spectrum</h3>
-            <div key="spectrum" ref={spectrumRef} className="h-32"></div>
+            <div id="spectrum" ref={spectrumRef} className="h-32"></div>
             {!audioFile && <p className="text-gray-500 text-center">Upload audio to visualize</p>}
           </div>
         </div>
@@ -329,22 +313,22 @@ function App() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
           <div className="bg-[#1a1a2e] rounded-lg p-6">
             <h3 className="text-xl mb-4 text-[#00ffcc]">Input</h3>
-            <input
-              type="file"
-              accept=".wav,.mp3,.ogg,.aac"
+            <input 
+              type="file" 
+              accept=".wav,.mp3,.ogg,.aac" 
               onChange={(e) => e.target.files?.[0] && handleFileUploadWrapper(e.target.files[0])}
-              className="hidden"
+              className="hidden" 
               id="audio-upload"
             />
-            <label
-              htmlFor="audio-upload"
+            <label 
+              htmlFor="audio-upload" 
               className="flex items-center space-x-2 bg-[#2a2a3c] hover:bg-[#3a3a4c] px-4 py-2 rounded-lg transition-all duration-300 cursor-pointer mb-4"
             >
               <Upload className="w-5 h-5 text-[#00ffcc]" />
               <span>Upload File</span>
             </label>
-
-            <button
+            
+            <button 
               onClick={handleExport}
               disabled={!processedAudio}
               className="flex items-center space-x-2 bg-[#2a2a3c] hover:bg-[#3a3a4c] px-4 py-2 rounded-lg transition-all duration-300 disabled:opacity-50 w-full"
@@ -356,7 +340,7 @@ function App() {
 
           <div className="bg-[#1a1a2e] rounded-lg p-6">
             <h3 className="text-xl mb-4 text-[#33ccff]">Playback</h3>
-            <button
+            <button 
               onClick={togglePlayback}
               disabled={!audioFile && !processedAudio}
               className="flex items-center space-x-2 bg-[#2a2a3c] hover:bg-[#3a3a4c] px-4 py-2 rounded-lg transition-all duration-300 disabled:opacity-50 mb-4 w-full"
@@ -369,7 +353,7 @@ function App() {
               <span>{isPlaying ? 'Pause' : 'Play'}</span>
             </button>
 
-            <button
+            <button 
               onClick={handleAnalyze}
               disabled={!audioFile || isAnalyzing}
               className="flex items-center space-x-2 bg-[#2a2a3c] hover:bg-[#3a3a4c] px-4 py-2 rounded-lg transition-all duration-300 disabled:opacity-50 w-full"
@@ -388,10 +372,10 @@ function App() {
                 <Volume2 className="w-4 h-4 mr-2 text-[#33ccff]" />
                 Noise Reduction: {noiseReduction}%
               </label>
-              <input
-                type="range"
-                min="0"
-                max="100"
+              <input 
+                type="range" 
+                min="0" 
+                max="100" 
                 value={noiseReduction}
                 onChange={(e) => setNoiseReduction(parseInt(e.target.value))}
                 className="w-full h-2 rounded-lg appearance-none bg-[#2a2a3c] cursor-pointer"
@@ -402,10 +386,10 @@ function App() {
                 <Wand2 className="w-4 h-4 mr-2 text-[#33ccff]" />
                 Pitch Shift: {pitchShift > 0 ? `+${pitchShift}` : pitchShift} semitones
               </label>
-              <input
-                type="range"
-                min="-12"
-                max="12"
+              <input 
+                type="range" 
+                min="-12" 
+                max="12" 
                 value={pitchShift}
                 onChange={(e) => setPitchShift(parseInt(e.target.value))}
                 className="w-full h-2 rounded-lg appearance-none bg-[#2a2a3c] cursor-pointer"
@@ -416,34 +400,24 @@ function App() {
                 <Volume2 className="w-4 h-4 mr-2 text-[#33ccff]" />
                 Volume: {(volume * 100).toFixed(0)}%
               </label>
-              <input
-                type="range"
-                min="0"
-                max="2"
+              <input 
+                type="range" 
+                min="0" 
+                max="2" 
                 step="0.1"
                 value={volume}
                 onChange={(e) => setVolume(parseFloat(e.target.value))}
                 className="w-full h-2 rounded-lg appearance-none bg-[#2a2a3c] cursor-pointer"
               />
             </div>
-            <div className="flex space-x-4">
-              <button
-                onClick={handleApplyEffects}
-                disabled={!audioFile}
-                className="flex items-center space-x-2 bg-[#2a2a3c] hover:bg-[#3a3a4c] px-4 py-2 rounded-lg transition-all duration-300 disabled:opacity-50 flex-1"
-              >
-                <Sparkles className="w-5 h-5 text-[#00ffcc]" />
-                <span>Apply Effects</span>
-              </button>
-              <button
-                onClick={handleResetEffects}
-                disabled={!audioFile}
-                className="flex items-center space-x-2 bg-[#2a2a3c] hover:bg-[#3a3a4c] px-4 py-2 rounded-lg transition-all duration-300 disabled:opacity-50 flex-1"
-              >
-                <RefreshCw className="w-5 h-5 text-[#00ffcc]" />
-                <span>Reset Effects</span>
-              </button>
-            </div>
+            <button 
+              onClick={handleApplyEffects}
+              disabled={!audioFile}
+              className="flex items-center space-x-2 bg-[#2a2a3c] hover:bg-[#3a3a4c] px-4 py-2 rounded-lg transition-all duration-300 disabled:opacity-50"
+            >
+              <Sparkles className="w-5 h-5 text-[#00ffcc]" />
+              <span>Apply Effects</span>
+            </button>
           </div>
         </div>
 
@@ -469,7 +443,7 @@ function App() {
                   {(analysisResults.clarity * 100).toFixed(0)}%
                 </p>
                 <p className="text-sm text-gray-400">
-                  {analysisResults.clarity > 0.8 ? 'Confident speech' : 'Moderate clarity'}
+                  {analysisResults.clarity > 0.65 ? 'Confident speech' : 'Moderate clarity'}
                 </p>
               </div>
               <div className="bg-[#2a2a3c] p-4 rounded-lg">
@@ -497,7 +471,9 @@ function App() {
               </div>
               <div className="bg-[#2a2a3c] p-4 rounded-lg">
                 <h4 className="text-sm text-gray-400 mb-2">Summary</h4>
-                <p className="text-lg text-[#00ffcc]">{analysisResults.summary}</p>
+                <p className="text-lg text-[#00ffcc]">
+                  {analysisResults.summary}
+                </p>
               </div>
             </div>
           </div>
